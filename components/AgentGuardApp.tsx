@@ -14,15 +14,16 @@ import { getCartDetails } from "@/lib/store/selectors";
 
 function Workspace() {
   const [activeTab, setActiveTab] = useState<AppTab>("store");
+  const [searchQuery, setSearchQuery] = useState("");
   const { snapshot, audits } = useAgentGuardStore();
   const webmcp = useWebMCPTools();
   const cart = getCartDetails(snapshot.cart);
 
   return (
     <div className="app-frame">
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} status={webmcp.status} cartCount={cart.count} activityCount={audits.length}/>
+      <Header activeTab={activeTab} setActiveTab={setActiveTab} status={webmcp.status} cartCount={cart.count} activityCount={audits.length} searchQuery={searchQuery} onSearchChange={setSearchQuery}/>
       <WebMCPStatus status={webmcp.status} error={webmcp.error}/>
-      {activeTab === "store" ? <Storefront onGuardrails={() => setActiveTab("guardrails")} onActivity={() => setActiveTab("activity")}/> : null}
+      {activeTab === "store" ? <Storefront searchQuery={searchQuery} onSearchChange={setSearchQuery} onGuardrails={() => setActiveTab("guardrails")} onActivity={() => setActiveTab("activity")}/> : null}
       {activeTab === "guardrails" ? <GuardrailsPanel /> : null}
       {activeTab === "activity" ? <ActivityTimeline /> : null}
       {activeTab === "how" ? <HowItWorks status={webmcp.status} registeredNames={webmcp.registeredNames}/> : null}

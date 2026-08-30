@@ -20,11 +20,9 @@ export function ProductCard({
         <ProductArtwork visual={product.visual} />
       </div>
       <div className="product-copy">
-        <div className="product-meta">
-          <span>{product.category}</span>
-          <span className="rating">★ {product.rating} <small>({product.reviews})</small></span>
-        </div>
+        <span className="product-brand">GuardMart exclusive</span>
         <h3>{product.name}</h3>
+        <div className="product-meta"><span className="rating">★ {product.rating} <small>({product.reviews})</small></span><span>{product.category}</span></div>
         <p>{product.description}</p>
         <div className="refund-line">
           <span className={product.refundable ? "refundable" : "nonrefundable"}>
@@ -32,7 +30,7 @@ export function ProductCard({
           </span>
         </div>
         <div className="product-footer">
-          <strong>{currency.format(product.price)}</strong>
+          <div className="price-lockup"><strong>{currency.format(product.price)}</strong><small>when purchased in app</small></div>
           <button className={inCart ? "button secondary compact" : "button dark compact"} onClick={onAdd}>
             {inCart ? <CheckIcon /> : <CartIcon />}{inCart ? "Add another" : "Add to cart"}
           </button>

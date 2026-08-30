@@ -13,7 +13,7 @@ export function CartPanel({ onViewActivity }: { onViewActivity: () => void }) {
     <aside className="cart-panel">
       <div className="panel-heading">
         <div>
-          <span className="section-kicker"><CartIcon /> Live app state</span>
+          <span className="section-kicker"><CartIcon /> Same-day demo cart</span>
           <h2>Your cart</h2>
         </div>
         <span className="count-badge">{cart.count}</span>
@@ -45,7 +45,8 @@ export function CartPanel({ onViewActivity }: { onViewActivity: () => void }) {
               </div>
             ))}
           </div>
-          <div className="cart-total-row"><span>Application total</span><strong>{currency.format(cart.total)}</strong></div>
+          <div className="fulfillment-note"><strong>Ready for checkout</strong><span>Fictional pickup · Free</span></div>
+          <div className="cart-total-row"><span>Estimated total</span><strong>{currency.format(cart.total)}</strong></div>
           <div className="agent-ready-card">
             <span className="ready-icon"><SparklesIcon /></span>
             <div><strong>Agent checkout ready</strong><p>Ask your browser agent to buy the cart. AgentGuard will evaluate this exact total.</p></div>

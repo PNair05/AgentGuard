@@ -55,6 +55,14 @@ export const UserIcon = (props: IconProps) => (
   <svg {...base(props)}><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
 );
 
+export const SearchIcon = (props: IconProps) => (
+  <svg {...base(props)}><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+);
+
+export const MapPinIcon = (props: IconProps) => (
+  <svg {...base(props)}><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+);
+
 export const ArrowIcon = (props: IconProps) => (
   <svg {...base(props)}><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
 );
