@@ -6,6 +6,8 @@ AgentGuard is a developer-integrated trust, authorization, privacy, and audit la
 
 Built for the 2026 OpenAI WebMCP Challenge. All commerce, accounts, and profile data in the demo are fictional.
 
+**Live demo:** [agentguard-webmcp.vercel.app](https://agentguard-webmcp.vercel.app/)
+
 ## What the demo proves
 
 - **Trust:** suspicious or over-parameterized tool contracts produce stable trust warnings.
