@@ -5,8 +5,19 @@ const decision = (
   action: GuardAction,
   value: GuardDecision["decision"],
   reasonCodes: string[],
-  reasons: string[]
-): GuardDecision => ({ action, decision: value, reasonCodes, reasons });
+  reasons: string[],
+  approvalChannel?: GuardDecision["approvalChannel"]
+): GuardDecision => ({
+  action,
+  decision: value,
+  reasonCodes: action.trustWarnings?.length
+    ? [REASON_CODES.TRUST_WARNING, ...reasonCodes]
+    : reasonCodes,
+  reasons: action.trustWarnings?.length
+    ? [...action.trustWarnings, ...reasons]
+    : reasons,
+  approvalChannel
+});
 
 const dollars = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -20,7 +31,7 @@ export function evaluateAction(
     return decision(action, "ALLOW", [REASON_CODES.READ_ONLY], ["Read-only actions are allowed."]);
   }
 
-  if (action.type === "LOW_RISK_MUTATION") {
+  if (action.type === "REVERSIBLE_WRITE") {
     return decision(
       action,
       "ALLOW",
@@ -29,7 +40,7 @@ export function evaluateAction(
     );
   }
 
-  if (action.type === "ONE_TIME_PURCHASE") {
+  if (action.type === "PURCHASE") {
     const amount = action.amount;
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) {
       return decision(
@@ -74,7 +85,13 @@ export function evaluateAction(
     }
 
     if (reasonCodes.length > 0) {
-      return decision(action, "REQUIRE_APPROVAL", reasonCodes, reasons);
+      return decision(
+        action,
+        "REQUIRE_REMOTE_APPROVAL",
+        reasonCodes,
+        reasons,
+        policy.remoteApprovalChannel
+      );
     }
 
     return decision(
@@ -85,13 +102,14 @@ export function evaluateAction(
     );
   }
 
-  if (action.type === "RECURRING_PURCHASE") {
+  if (action.type === "SUBSCRIPTION") {
     if (policy.requireApprovalForRecurring) {
       return decision(
         action,
-        "REQUIRE_APPROVAL",
+        "REQUIRE_REMOTE_APPROVAL",
         [REASON_CODES.RECURRING_CHARGE],
-        ["Your policy requires approval for every recurring charge."]
+        ["Your policy requires approval for every recurring charge."],
+        policy.remoteApprovalChannel
       );
     }
 
@@ -104,7 +122,7 @@ export function evaluateAction(
   }
 
   if (action.type === "DATA_DISCLOSURE") {
-    const fields = action.dataFields ?? [];
+    const fields = action.sensitiveFields ?? [];
     if (fields.length === 0) {
       return decision(
         action,
@@ -130,9 +148,10 @@ export function evaluateAction(
     if (approvalFields.length > 0) {
       return decision(
         action,
-        "REQUIRE_APPROVAL",
+        "REQUIRE_REMOTE_APPROVAL",
         approvalFields.map(() => REASON_CODES.DATA_FIELD_REQUIRES_APPROVAL),
-        approvalFields.map((field) => `${field} sharing requires your approval.`)
+        approvalFields.map((field) => `${field} sharing requires your approval.`),
+        policy.remoteApprovalChannel
       );
     }
 
@@ -147,9 +166,10 @@ export function evaluateAction(
   if (policy.requireApprovalForDestructive) {
     return decision(
       action,
-      "REQUIRE_APPROVAL",
+      "REQUIRE_LOCAL_APPROVAL",
       [REASON_CODES.DESTRUCTIVE_ACTION],
-      ["Your policy requires approval for destructive account actions."]
+      ["Your policy requires approval for destructive account actions."],
+      "browser"
     );
   }
 

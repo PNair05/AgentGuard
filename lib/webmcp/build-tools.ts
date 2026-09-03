@@ -1,6 +1,7 @@
 import { guardedWebMCPTool, ToolInputError } from "@/lib/agentguard/guarded-tool";
 import type {
   AgentPolicy,
+  ApprovalResolution,
   AuditEvent,
   GuardAction,
   GuardDecision
@@ -12,11 +13,13 @@ import {
   ADD_TO_CART_SCHEMA,
   cancelOrderSchema,
   EMPTY_SCHEMA,
+  FIND_RECOMMENDATIONS_SCHEMA,
   GET_PRODUCT_SCHEMA,
   GUARD_ACTIVITY_SCHEMA,
   POLICY_SUMMARY_SCHEMA,
   SEARCH_PRODUCTS_SCHEMA,
-  SHARE_PROFILE_SCHEMA
+  SHARE_PROFILE_SCHEMA,
+  viewOrderSchema
 } from "./tool-schemas";
 import type { WebMCPToolDefinition } from "./types";
 
@@ -26,8 +29,9 @@ export interface AgentGuardToolRuntime {
   getAudits: () => AuditEvent[];
   requestApproval: (
     decision: GuardDecision,
+    fingerprint: string,
     signal?: AbortSignal
-  ) => Promise<"approved" | "denied" | "cancelled">;
+  ) => Promise<ApprovalResolution>;
   appendAudit: (event: AuditEvent) => void;
   updateAudit: (id: string, patch: Partial<AuditEvent>) => void;
   addToCart: (productId: string, quantity?: number) => void;
@@ -70,7 +74,7 @@ const guarded = <TInput, TResult>(
 ) =>
   guardedWebMCPTool<TInput, TResult>(config, {
     getPolicy: runtime.getPolicy,
-    getContext: () => ({ sessionSpent: runtime.getSnapshot().sessionSpent }),
+    getContext: () => ({ userId: "guardmart-demo-user", sessionSpent: runtime.getSnapshot().sessionSpent }),
     requestApproval: runtime.requestApproval,
     appendAudit: runtime.appendAudit,
     updateAudit: runtime.updateAudit
@@ -86,13 +90,16 @@ const checkoutAction = (state: AppSnapshot): GuardAction => {
       ? cart.items[0].product.name
       : `${cart.count} GuardMart items`;
   return {
-    type: "ONE_TIME_PURCHASE",
+    type: "PURCHASE",
     toolName: "checkout_cart",
     label: `Purchase ${itemLabel}`,
     amount: cart.total,
     currency: "USD",
     refundable: cart.refundable,
+    reversible: true,
+    changesExternalState: true,
     resourceId: cartFingerprint(state.cart),
+    arguments: { cartFingerprint: cartFingerprint(state.cart) },
     metadata: {
       merchant: "GuardMart",
       itemCount: cart.count,
@@ -102,14 +109,17 @@ const checkoutAction = (state: AppSnapshot): GuardAction => {
 };
 
 const recurringAction = (): GuardAction => ({
-  type: "RECURRING_PURCHASE",
+  type: "SUBSCRIPTION",
   toolName: "subscribe_plus",
   label: "Join GuardMart Plus",
   amount: 9.99,
   currency: "USD",
   recurring: true,
   refundable: false,
+  reversible: true,
+  changesExternalState: true,
   resourceId: "guardmart-plus-monthly",
+  arguments: { plan: "guardmart-plus-monthly" },
   metadata: { merchant: "GuardMart", cadence: "monthly", cancellation: "Cancel anytime" }
 });
 
@@ -117,16 +127,19 @@ const shareAction = (partnerId: string, fields: string[]): GuardAction => ({
   type: "DATA_DISCLOSURE",
   toolName: "share_profile",
   label: `Share ${fields.join(" and ")} with ${partnerId.replace("-", " ")}`,
-  dataFields: [...fields].sort(),
+  sensitiveFields: [...fields].sort(),
+  changesExternalState: true,
   resourceId: partnerId,
+  arguments: { partnerId, fields: [...fields].sort() },
   metadata: { partner: partnerId }
 });
 
 const destructiveAction = (toolName: string, label: string, resourceId: string): GuardAction => ({
-  type: "DESTRUCTIVE_ACTION",
+  type: "DESTRUCTIVE",
   toolName,
   label,
   destructive: true,
+  changesExternalState: true,
   resourceId
 });
 
@@ -156,7 +169,8 @@ export function buildWebMCPTools(
           ? "approval_required"
           : "allowed",
         dataSharing: { ...policy.dataRules },
-        destructiveActions: policy.requireApprovalForDestructive ? "approval_required" : "allowed",
+        remoteApprovalChannel: policy.remoteApprovalChannel,
+        destructiveActions: policy.requireApprovalForDestructive ? "local_approval_required" : "allowed",
         note: "These boundaries are human-managed and cannot be changed through WebMCP."
       };
     }
@@ -265,10 +279,13 @@ export function buildWebMCPTools(
       return { productId, quantity: quantity as number };
     },
     classify: ({ productId, quantity }) => ({
-      type: "LOW_RISK_MUTATION",
+      type: "REVERSIBLE_WRITE",
       toolName: "add_to_cart",
       label: `Add ${quantity} × ${PRODUCT_BY_ID.get(productId)?.name ?? "product"} to cart`,
-      resourceId: productId
+      reversible: true,
+      changesExternalState: true,
+      resourceId: productId,
+      arguments: { productId, quantity }
     }),
     execute: ({ productId, quantity }) => {
       runtime.addToCart(productId, quantity);
@@ -281,7 +298,11 @@ export function buildWebMCPTools(
         currency: "USD",
         next: "Use view_cart to review the application-calculated total before checkout."
       };
-    }
+    },
+    verify: ({ productId }) => ({
+      success: runtime.getSnapshot().cart.some((item) => item.productId === productId),
+      message: "The product is present in authoritative cart state."
+    })
   });
   tools.push({
     name: "add_to_cart",
@@ -290,6 +311,66 @@ export function buildWebMCPTools(
     inputSchema: ADD_TO_CART_SCHEMA,
     annotations: { readOnlyHint: false, untrustedContentHint: false },
     execute: (input, { signal }) => addToCart(input, signal)
+  });
+
+  const findRecommendations = guarded<{
+    category: string;
+    budget?: number;
+    email?: string;
+    income?: number;
+  }, unknown>(runtime, {
+    toolName: "find_recommendations",
+    validate: (raw) => {
+      const input = objectInput(raw);
+      const category = stringField(input, "category");
+      const budget = input.budget;
+      const email = input.email;
+      const income = input.income;
+      if (budget !== undefined && (typeof budget !== "number" || budget < 0 || budget > 5000)) {
+        throw new ToolInputError("budget must be a number from 0 to 5000.");
+      }
+      if (email !== undefined && (typeof email !== "string" || email.length > 160)) {
+        throw new ToolInputError("email must be a string no longer than 160 characters.");
+      }
+      if (income !== undefined && (typeof income !== "number" || income < 0)) {
+        throw new ToolInputError("income must be a non-negative number.");
+      }
+      return { category, budget, email, income };
+    },
+    classify: ({ category, budget, email, income }) => {
+      const sensitiveFields = [email === undefined ? null : "email", income === undefined ? null : "income"]
+        .filter((field): field is string => field !== null);
+      return {
+        type: sensitiveFields.length > 0 ? "DATA_DISCLOSURE" : "READ",
+        toolName: "find_recommendations",
+        label: sensitiveFields.length > 0
+          ? `Find ${category} recommendations with extra personal data`
+          : `Find ${category} recommendations`,
+        sensitiveFields,
+        arguments: { category, budget, suppliedFields: sensitiveFields },
+        trustWarnings: [
+          "This recommendation tool exposes personal-data parameters that are unnecessary for product search."
+        ]
+      };
+    },
+    execute: ({ category, budget }) => ({
+      status: "ok",
+      ignoredSensitiveParameters: true,
+      products: searchProducts(category, budget).slice(0, 3).map(({ id, name, price, rating }) => ({
+        productId: id,
+        name,
+        price,
+        rating
+      }))
+    })
+  });
+  tools.push({
+    name: "find_recommendations",
+    title: "Find recommendations",
+    description: "Find products by category and budget. Personal-data fields are unnecessary and policy-checked if supplied.",
+    inputSchema: FIND_RECOMMENDATIONS_SCHEMA,
+    annotations: { readOnlyHint: true, untrustedContentHint: false },
+    execute: (input, { signal }) => findRecommendations(input, signal)
   });
 
   const shareProfile = guarded<{ partnerId: string; fields: string[] }, unknown>(runtime, {
@@ -301,8 +382,8 @@ export function buildWebMCPTools(
         throw new ToolInputError("fields must contain at least one supported profile field.");
       }
       const fields = [...new Set(input.fields)];
-      if (fields.some((field) => typeof field !== "string" || !["email", "location", "phone"].includes(field))) {
-        throw new ToolInputError("fields may contain only email, location, or phone.");
+      if (fields.some((field) => typeof field !== "string" || !["email", "phone", "precise_location", "income"].includes(field))) {
+        throw new ToolInputError("fields may contain only email, phone, precise_location, or income.");
       }
       return { partnerId, fields: fields as string[] };
     },
@@ -341,7 +422,11 @@ export function buildWebMCPTools(
           simulated: true,
           message: "The fictional GuardMart account was deleted."
         };
-      }
+      },
+      verify: () => ({
+        success: runtime.getSnapshot().accountDeleted,
+        message: "Authoritative account state confirms deletion."
+      })
     });
     tools.push({
       name: "delete_account",
@@ -374,13 +459,17 @@ export function buildWebMCPTools(
         .getAudits()
         .filter((event) => event.toolName !== "get_guard_activity" && event.result !== "PENDING")
         .slice(0, limit)
-        .map(({ timestamp, toolName, decision, reasonCodes, humanDecision, result, amount }) => ({
+        .map(({ timestamp, toolName, actionType, decision, reasonCodes, humanDecision, approvalChannel, result, executionStatus, verificationStatus, amount }) => ({
           timestamp,
           toolName,
+          actionType,
           decision,
           reasonCodes,
           humanDecision,
+          approvalChannel,
           result,
+          executionStatus,
+          verificationStatus,
           amount
         }))
     })
@@ -446,6 +535,14 @@ export function buildWebMCPTools(
           currency: "USD",
           message: "Simulated order created and cart cleared."
         };
+      },
+      verify: (_input, result) => {
+        const orderId = isRecord(result) && typeof result.orderId === "string" ? result.orderId : "";
+        const state = runtime.getSnapshot();
+        return {
+          success: state.cart.length === 0 && state.orders.some((order) => order.id === orderId),
+          message: "Authoritative order state contains the new order and the cart is empty."
+        };
       }
     });
     tools.push({
@@ -479,7 +576,11 @@ export function buildWebMCPTools(
           cadence: "monthly",
           message: "Membership activated."
         };
-      }
+      },
+      verify: () => ({
+        success: runtime.getSnapshot().subscriptionActive,
+        message: "Authoritative membership state confirms GuardMart Plus is active."
+      })
     });
     tools.push({
       name: "subscribe_plus",
@@ -488,6 +589,47 @@ export function buildWebMCPTools(
       inputSchema: EMPTY_SCHEMA,
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: (input, { signal }) => subscribe(input, signal)
+    });
+  }
+
+  const orderIds = runtime.getSnapshot().orders.map((order) => order.id);
+  if (orderIds.length > 0) {
+    const viewOrder = guarded<{ orderId: string }, unknown>(runtime, {
+      toolName: "view_order",
+      validate: (raw) => {
+        const input = objectInput(raw);
+        return { orderId: stringField(input, "orderId", orderIds) };
+      },
+      classify: ({ orderId }) => ({
+        type: "READ",
+        toolName: "view_order",
+        label: `View order ${orderId}`,
+        resourceId: orderId,
+        arguments: { orderId }
+      }),
+      execute: ({ orderId }) => {
+        const order = runtime.getSnapshot().orders.find((candidate) => candidate.id === orderId);
+        if (!order) throw new ToolInputError("Order not found.");
+        return {
+          status: "ok",
+          order: {
+            orderId: order.id,
+            status: order.status,
+            total: order.total,
+            currency: "USD",
+            createdAt: order.createdAt,
+            itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0)
+          }
+        };
+      }
+    });
+    tools.push({
+      name: "view_order",
+      title: "View order",
+      description: "Read authoritative status and totals for a completed GuardMart order.",
+      inputSchema: viewOrderSchema(orderIds),
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      execute: (input, { signal }) => viewOrder(input, signal)
     });
   }
 
@@ -515,7 +657,11 @@ export function buildWebMCPTools(
           currency: "USD",
           message: "Simulated order cancelled."
         };
-      }
+      },
+      verify: ({ orderId }) => ({
+        success: runtime.getSnapshot().orders.some((order) => order.id === orderId && order.status === "cancelled"),
+        message: "Authoritative order state confirms cancellation."
+      })
     });
     tools.push({
       name: "cancel_order",

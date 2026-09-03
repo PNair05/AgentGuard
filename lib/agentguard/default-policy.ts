@@ -7,9 +7,11 @@ export const DEFAULT_POLICY: AgentPolicy = {
   requireApprovalForRecurring: true,
   requireApprovalForNonRefundable: true,
   requireApprovalForDestructive: true,
+  remoteApprovalChannel: "sms",
   dataRules: {
     email: "REQUIRE_APPROVAL",
-    location: "DENY",
-    phone: "DENY"
+    phone: "REQUIRE_APPROVAL",
+    precise_location: "DENY",
+    income: "DENY"
   }
 };

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApprovalBroker } from "@/lib/agentguard/approval-broker";
 import { DEFAULT_POLICY } from "@/lib/agentguard/default-policy";
 import { guardedWebMCPTool } from "@/lib/agentguard/guarded-tool";
@@ -24,7 +24,7 @@ describe("guardedWebMCPTool", () => {
       {
         toolName: "checkout_cart",
         classify: () => ({
-          type: "ONE_TIME_PURCHASE" as const,
+          type: "PURCHASE" as const,
           toolName: "checkout_cart",
           label: "Purchase NovaSound X1",
           amount: 279,
@@ -37,7 +37,7 @@ describe("guardedWebMCPTool", () => {
       },
       {
         getPolicy: () => DEFAULT_POLICY,
-        getContext: () => ({ sessionSpent: 0 }),
+        getContext: () => ({ userId: "test-user", sessionSpent: 0 }),
         requestApproval: broker.request.bind(broker),
         appendAudit,
         updateAudit
@@ -45,7 +45,7 @@ describe("guardedWebMCPTool", () => {
     );
 
     const pending = execute({}, controller.signal);
-    expect(broker.getSnapshot()?.action.amount).toBe(279);
+    await vi.waitFor(() => expect(broker.getSnapshot()?.action.amount).toBe(279));
     controller.abort();
     const result = await pending;
 
@@ -62,7 +62,7 @@ describe("guardedWebMCPTool", () => {
       {
         toolName: "checkout_cart",
         classify: () => ({
-          type: "ONE_TIME_PURCHASE" as const,
+          type: "PURCHASE" as const,
           toolName: "checkout_cart",
           label: "Purchase NovaSound X1",
           amount: 279,
@@ -70,7 +70,7 @@ describe("guardedWebMCPTool", () => {
           resourceId: "headphones-x1:1"
         }),
         getCurrentAction: () => ({
-          type: "ONE_TIME_PURCHASE" as const,
+          type: "PURCHASE" as const,
           toolName: "checkout_cart",
           label: "Purchase NovaSound X1",
           amount: 279,
@@ -81,7 +81,7 @@ describe("guardedWebMCPTool", () => {
       },
       {
         getPolicy: () => DEFAULT_POLICY,
-        getContext: () => ({ sessionSpent: 0 }),
+        getContext: () => ({ userId: "test-user", sessionSpent: 0 }),
         requestApproval: broker.request.bind(broker),
         appendAudit,
         updateAudit
@@ -89,6 +89,7 @@ describe("guardedWebMCPTool", () => {
     );
 
     const pending = execute({});
+    await vi.waitFor(() => expect(broker.getSnapshot()).not.toBeNull());
     const approval = broker.getSnapshot();
     expect(approval).not.toBeNull();
     broker.respond(approval!.id, true);
@@ -104,7 +105,7 @@ describe("guardedWebMCPTool", () => {
     let amount = 279;
     let executions = 0;
     const action = () => ({
-      type: "ONE_TIME_PURCHASE" as const,
+      type: "PURCHASE" as const,
       toolName: "checkout_cart",
       label: "Purchase cart",
       amount,
@@ -115,7 +116,7 @@ describe("guardedWebMCPTool", () => {
       { toolName: "checkout_cart", classify: action, getCurrentAction: action, execute: () => ++executions },
       {
         getPolicy: () => DEFAULT_POLICY,
-        getContext: () => ({ sessionSpent: 0 }),
+        getContext: () => ({ userId: "test-user", sessionSpent: 0 }),
         requestApproval: broker.request.bind(broker),
         appendAudit,
         updateAudit
@@ -123,6 +124,7 @@ describe("guardedWebMCPTool", () => {
     );
 
     const pending = execute({});
+    await vi.waitFor(() => expect(broker.getSnapshot()).not.toBeNull());
     amount = 299;
     broker.respond(broker.getSnapshot()!.id, true);
     const result = await pending;
@@ -130,5 +132,57 @@ describe("guardedWebMCPTool", () => {
     expect(executions).toBe(0);
     expect(result).toMatchObject({ status: "invalid_state", reasonCodes: ["ACTION_CHANGED"] });
     expect(events[0].result).toBe("BLOCKED");
+  });
+
+  it("expires an approval without running the protected side effect", async () => {
+    const { events, appendAudit, updateAudit } = harness();
+    const broker = new ApprovalBroker({ timeoutMs: 10 });
+    let executions = 0;
+    const execute = guardedWebMCPTool(
+      {
+        toolName: "checkout_cart",
+        classify: () => ({ type: "PURCHASE" as const, toolName: "checkout_cart", label: "Purchase", amount: 279 }),
+        execute: () => ++executions
+      },
+      {
+        getPolicy: () => DEFAULT_POLICY,
+        getContext: () => ({ userId: "test-user", sessionSpent: 0 }),
+        requestApproval: broker.request.bind(broker),
+        appendAudit,
+        updateAudit
+      }
+    );
+
+    const result = await execute({});
+    expect(result).toMatchObject({ status: "expired", recoverable: true });
+    expect(executions).toBe(0);
+    expect(events[0]).toMatchObject({ result: "EXPIRED", executionStatus: "NOT_STARTED" });
+  });
+
+  it("records postcondition verification separately from execution", async () => {
+    const { events, appendAudit, updateAudit } = harness();
+    const execute = guardedWebMCPTool(
+      {
+        toolName: "add_to_cart",
+        classify: () => ({ type: "REVERSIBLE_WRITE" as const, toolName: "add_to_cart", label: "Add item" }),
+        execute: () => ({ added: true }),
+        verify: () => ({ success: true, message: "Cart state contains the item." })
+      },
+      {
+        getPolicy: () => DEFAULT_POLICY,
+        getContext: () => ({ userId: "test-user", sessionSpent: 0 }),
+        requestApproval: async () => "approved",
+        appendAudit,
+        updateAudit
+      }
+    );
+
+    await execute({});
+    expect(events[0]).toMatchObject({
+      result: "EXECUTED",
+      executionStatus: "SUCCESS",
+      verificationStatus: "SUCCESS"
+    });
+    expect(events[0].reasonCodes).toContain("VERIFICATION_SUCCESS");
   });
 });

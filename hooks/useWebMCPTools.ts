@@ -30,7 +30,7 @@ export function useWebMCPTools() {
       getPolicy: () => storeRef.current.getPolicy(),
       getSnapshot: () => storeRef.current.getSnapshot(),
       getAudits: () => storeRef.current.getAudits(),
-      requestApproval: (decision, signal) => storeRef.current.requestApproval(decision, signal),
+      requestApproval: (decision, fingerprint, signal) => storeRef.current.requestApproval(decision, fingerprint, signal),
       appendAudit: (event) => storeRef.current.appendAudit(event),
       updateAudit: (id, patch) => storeRef.current.updateAudit(id, patch),
       addToCart: (productId, quantity) => storeRef.current.addToCart(productId, quantity),

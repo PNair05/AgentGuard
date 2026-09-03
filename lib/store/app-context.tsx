@@ -15,6 +15,7 @@ import { ApprovalBroker } from "@/lib/agentguard/approval-broker";
 import { DEFAULT_POLICY } from "@/lib/agentguard/default-policy";
 import type {
   AgentPolicy,
+  ApprovalResolution,
   AuditEvent,
   GuardDecision,
   PendingApproval
@@ -53,7 +54,7 @@ interface AgentGuardContextValue {
   activateSubscription: () => void;
   cancelOrder: (orderId: string) => Order;
   markAccountDeleted: () => void;
-  requestApproval: (decision: GuardDecision, signal?: AbortSignal) => Promise<"approved" | "denied" | "cancelled">;
+  requestApproval: (decision: GuardDecision, fingerprint: string, signal?: AbortSignal) => Promise<ApprovalResolution>;
   respondToApproval: (id: string, approved: boolean) => void;
   appendAudit: (event: AuditEvent) => void;
   updateAudit: (id: string, patch: Partial<AuditEvent>) => void;
@@ -64,6 +65,10 @@ const AgentGuardContext = createContext<AgentGuardContextValue | null>(null);
 
 function isDecision(value: unknown): value is AgentPolicy["dataRules"][string] {
   return value === "ALLOW" || value === "REQUIRE_APPROVAL" || value === "DENY";
+}
+
+function isApprovalChannel(value: unknown): value is AgentPolicy["remoteApprovalChannel"] {
+  return value === "browser" || value === "sms";
 }
 
 function loadPolicy(): AgentPolicy {
@@ -99,6 +104,9 @@ function loadPolicy(): AgentPolicy {
         typeof parsed.requireApprovalForDestructive === "boolean"
           ? parsed.requireApprovalForDestructive
           : DEFAULT_POLICY.requireApprovalForDestructive,
+      remoteApprovalChannel: isApprovalChannel(parsed.remoteApprovalChannel)
+        ? parsed.remoteApprovalChannel
+        : DEFAULT_POLICY.remoteApprovalChannel,
       dataRules
     };
   } catch {
@@ -109,7 +117,13 @@ function loadPolicy(): AgentPolicy {
 function loadAudits(): AuditEvent[] {
   try {
     const value = JSON.parse(localStorage.getItem(AUDIT_KEY) ?? "[]");
-    return Array.isArray(value) ? (value as AuditEvent[]).slice(0, 80) : [];
+    return Array.isArray(value)
+      ? (value as Partial<AuditEvent>[]).slice(0, 80).map((event) => ({
+          ...event,
+          executionStatus: event.executionStatus ?? (event.result === "EXECUTED" ? "SUCCESS" : "NOT_STARTED"),
+          verificationStatus: event.verificationStatus ?? "NOT_RUN"
+        } as AuditEvent))
+      : [];
   } catch {
     return [];
   }

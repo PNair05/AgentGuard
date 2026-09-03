@@ -1,20 +1,23 @@
+import { createActionFingerprint } from "./fingerprint";
 import { evaluateAction } from "./policy-engine";
 import { REASON_CODES } from "./reason-codes";
 import type {
   AgentPolicy,
+  ApprovalResolution,
   AuditEvent,
   GuardAction,
   GuardContext,
   GuardDecision,
-  GuardedBlockedResult
+  GuardedBlockedResult,
+  VerificationResult
 } from "./types";
-import type { ApprovalResolution } from "./approval-broker";
 
 export interface GuardedToolDependencies {
   getPolicy: () => AgentPolicy;
   getContext: () => GuardContext;
   requestApproval: (
     decision: GuardDecision,
+    fingerprint: string,
     signal?: AbortSignal
   ) => Promise<ApprovalResolution>;
   appendAudit: (event: AuditEvent) => void;
@@ -27,6 +30,10 @@ export interface GuardedToolConfig<TInput, TResult> {
   classify: (input: TInput) => GuardAction;
   getCurrentAction?: (input: TInput) => GuardAction;
   execute: (input: TInput, signal?: AbortSignal) => Promise<TResult> | TResult;
+  verify?: (
+    input: TInput,
+    result: TResult
+  ) => Promise<VerificationResult | boolean> | VerificationResult | boolean;
 }
 
 export class ToolInputError extends Error {
@@ -36,24 +43,9 @@ export class ToolInputError extends Error {
   }
 }
 
-const actionFingerprint = (action: GuardAction) =>
-  JSON.stringify({
-    type: action.type,
-    label: action.label,
-    toolName: action.toolName,
-    amount: action.amount,
-    currency: action.currency,
-    recurring: action.recurring,
-    refundable: action.refundable,
-    dataFields: action.dataFields ? [...action.dataFields].sort() : undefined,
-    destructive: action.destructive,
-    resourceId: action.resourceId,
-    metadata: action.metadata
-  });
-
 const deniedSuggestion = (decision: GuardDecision) => {
   if (decision.reasonCodes.includes(REASON_CODES.HARD_SPEND_LIMIT)) {
-    return "Choose an alternative within the user's hard purchase limit.";
+    return "Choose an alternative costing no more than the user's hard purchase limit.";
   }
   if (decision.reasonCodes.includes(REASON_CODES.DATA_FIELD_BLOCKED)) {
     return "Remove blocked profile fields and retry with allowed fields only.";
@@ -71,14 +63,14 @@ const blocked = (
   }
 ): GuardedBlockedResult => ({
   status: options?.status ?? "blocked",
-  decision: decision.decision === "DENY" ? "DENY" : "REQUIRE_APPROVAL",
+  decision: decision.decision === "ALLOW" ? "DENY" : decision.decision,
   reasonCodes: options?.codes ?? decision.reasonCodes,
   message: options?.message ?? decision.reasons.join(" "),
   recoverable: true,
   suggestion: options?.suggestion ?? deniedSuggestion(decision)
 });
 
-const makeAudit = (decision: GuardDecision): AuditEvent => ({
+const makeAudit = (decision: GuardDecision, fingerprint: string): AuditEvent => ({
   id: crypto.randomUUID(),
   timestamp: Date.now(),
   toolName: decision.action.toolName,
@@ -87,11 +79,15 @@ const makeAudit = (decision: GuardDecision): AuditEvent => ({
   decision: decision.decision,
   reasonCodes: decision.reasonCodes,
   reasons: decision.reasons,
+  approvalChannel: decision.approvalChannel,
   result: "PENDING",
+  executionStatus: "NOT_STARTED",
+  verificationStatus: "NOT_RUN",
+  fingerprint,
   amount: decision.action.amount
 });
 
-export function guardedWebMCPTool<TInput, TResult>(
+export function guardTool<TInput, TResult>(
   config: GuardedToolConfig<TInput, TResult>,
   dependencies: GuardedToolDependencies
 ) {
@@ -124,12 +120,10 @@ export function guardedWebMCPTool<TInput, TResult>(
       };
     }
 
-    const guardDecision = evaluateAction(
-      action,
-      dependencies.getPolicy(),
-      dependencies.getContext()
-    );
-    const audit = makeAudit(guardDecision);
+    const context = dependencies.getContext();
+    const guardDecision = evaluateAction(action, dependencies.getPolicy(), context);
+    const fingerprint = await createActionFingerprint(context.userId, action);
+    const audit = makeAudit(guardDecision, fingerprint);
     dependencies.appendAudit(audit);
 
     if (guardDecision.decision === "DENY") {
@@ -150,8 +144,21 @@ export function guardedWebMCPTool<TInput, TResult>(
       });
     }
 
-    if (guardDecision.decision === "REQUIRE_APPROVAL") {
-      const approval = await dependencies.requestApproval(guardDecision, signal);
+    if (guardDecision.decision.includes("REQUIRE_")) {
+      const approval = await dependencies.requestApproval(guardDecision, fingerprint, signal);
+
+      if (approval === "expired") {
+        dependencies.updateAudit(audit.id, {
+          result: "EXPIRED",
+          reasonCodes: [...audit.reasonCodes, REASON_CODES.APPROVAL_TIMEOUT]
+        });
+        return blocked(guardDecision, {
+          status: "expired",
+          codes: [...guardDecision.reasonCodes, REASON_CODES.APPROVAL_TIMEOUT],
+          message: "Human approval was not received before the request expired.",
+          suggestion: "Retry the action to create a fresh approval request."
+        });
+      }
 
       if (approval === "cancelled" || signal?.aborted) {
         dependencies.updateAudit(audit.id, {
@@ -197,7 +204,8 @@ export function guardedWebMCPTool<TInput, TResult>(
           });
         }
 
-        if (actionFingerprint(currentAction) !== actionFingerprint(action)) {
+        const currentFingerprint = await createActionFingerprint(context.userId, currentAction);
+        if (currentFingerprint !== fingerprint) {
           dependencies.updateAudit(audit.id, {
             result: "BLOCKED",
             reasonCodes: [...audit.reasonCodes, REASON_CODES.ACTION_CHANGED]
@@ -223,11 +231,46 @@ export function guardedWebMCPTool<TInput, TResult>(
 
     try {
       const result = await config.execute(input, signal);
+      dependencies.updateAudit(audit.id, { executionStatus: "SUCCESS" });
+
+      if (config.verify) {
+        const verification = await config.verify(input, result);
+        const normalized = typeof verification === "boolean"
+          ? { success: verification, message: verification ? "Postcondition verified." : "Postcondition verification failed." }
+          : verification;
+
+        if (!normalized.success) {
+          dependencies.updateAudit(audit.id, {
+            result: "FAILED",
+            verificationStatus: "FAILED",
+            verificationMessage: normalized.message,
+            reasonCodes: [...audit.reasonCodes, REASON_CODES.VERIFICATION_FAILED]
+          });
+          return blocked(guardDecision, {
+            status: "verification_failed",
+            codes: [REASON_CODES.VERIFICATION_FAILED],
+            message: normalized.message,
+            suggestion: "Inspect application state before retrying; the side effect may have occurred."
+          });
+        }
+
+        dependencies.updateAudit(audit.id, {
+          result: "EXECUTED",
+          verificationStatus: "SUCCESS",
+          verificationMessage: normalized.message,
+          reasonCodes: [...audit.reasonCodes, REASON_CODES.VERIFICATION_SUCCESS]
+        });
+        return result;
+      }
+
       dependencies.updateAudit(audit.id, { result: "EXECUTED" });
       return result;
     } catch (error) {
       const cancelled = signal?.aborted;
-      dependencies.updateAudit(audit.id, { result: cancelled ? "CANCELLED" : "FAILED" });
+      dependencies.updateAudit(audit.id, {
+        result: cancelled ? "CANCELLED" : "FAILED",
+        executionStatus: cancelled ? "NOT_STARTED" : "FAILED"
+      });
       return blocked(guardDecision, {
         status: cancelled ? "cancelled" : "failed",
         codes: [cancelled ? REASON_CODES.EXECUTION_CANCELLED : REASON_CODES.INVALID_STATE],
@@ -241,3 +284,5 @@ export function guardedWebMCPTool<TInput, TResult>(
     }
   };
 }
+
+export const guardedWebMCPTool = guardTool;

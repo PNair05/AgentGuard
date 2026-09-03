@@ -20,7 +20,7 @@ export function ActivityTimeline() {
         ) : (
           <ol className="activity-list">
             {audits.map((event) => (
-              <li key={event.id} className={`activity-event ${event.decision.toLowerCase()}`}>
+              <li key={event.id} className={`activity-event ${event.decision.includes("REQUIRE_") ? "require_approval" : event.decision.toLowerCase()}`}>
                 <div className="event-rail"><span>{event.decision === "ALLOW" ? "✓" : event.decision === "DENY" ? "×" : "?"}</span></div>
                 <div className="event-main">
                   <div className="event-heading"><div><code>{event.toolName}</code><time>{new Date(event.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}</time></div><GuardDecisionBadge event={event}/></div>
@@ -28,6 +28,13 @@ export function ActivityTimeline() {
                   {event.amount !== undefined ? <strong className="event-amount">{currency.format(event.amount)}</strong> : null}
                   <div className="event-reasons">{event.reasons.map((reason) => <p key={reason}>{reason}</p>)}</div>
                   <div className="event-codes">{event.reasonCodes.map((code) => <span key={code}>{code}</span>)}</div>
+                  <div className="event-detail-grid">
+                    <span><small>Risk</small><strong>{event.actionType.replaceAll("_", " ")}</strong></span>
+                    <span><small>Approval</small><strong>{event.approvalChannel?.toUpperCase() ?? "NONE"}</strong></span>
+                    <span><small>Execution</small><strong>{event.executionStatus}</strong></span>
+                    <span><small>Verification</small><strong>{event.verificationStatus}</strong></span>
+                  </div>
+                  {event.fingerprint ? <div className="event-fingerprint"><LockIcon /> <span>Action fingerprint</span><code>{event.fingerprint.slice(0, 16)}…</code></div> : null}
                   <div className="event-outcome"><span>Result</span><strong>{event.result}</strong>{event.humanDecision ? <><i/><span>Human</span><strong>{event.humanDecision}</strong></> : null}</div>
                 </div>
               </li>
