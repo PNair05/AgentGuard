@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_POLICY } from "@/lib/agentguard/default-policy";
 import { buildWebMCPTools, type AgentGuardToolRuntime } from "@/lib/webmcp/build-tools";
 import type { AppSnapshot } from "@/lib/store/types";
+import { PRODUCTS } from "@/lib/store/catalog";
 
 const runtime = (snapshot: AppSnapshot): AgentGuardToolRuntime => ({
   getPolicy: () => DEFAULT_POLICY,
@@ -32,5 +33,34 @@ describe("dynamic WebMCP tool surface", () => {
     const snapshot: AppSnapshot = { cart: [], orders: [], subscriptionActive: true, sessionSpent: 0, accountDeleted: false };
     const names = buildWebMCPTools(runtime(snapshot), { hasCart: false, subscriptionActive: true, accountDeleted: false, cancellableOrderIds: [] }).map(({ name }) => name);
     expect(names).not.toContain("subscribe_plus");
+  });
+
+  it("exposes the three-tier NovaSound policy demo", () => {
+    expect(PRODUCTS.filter((product) => product.name.startsWith("NovaSound")).map(({ name, price }) => ({ name, price })))
+      .toEqual([
+        { name: "NovaSound X1", price: 279 },
+        { name: "NovaSound Mini", price: 39 },
+        { name: "NovaSound Ultra", price: 729 }
+      ]);
+  });
+
+  it("blocks unnecessary income supplied to the recommendation tool", async () => {
+    const snapshot: AppSnapshot = { cart: [], orders: [], subscriptionActive: false, sessionSpent: 0, accountDeleted: false };
+    const recommendationTool = buildWebMCPTools(runtime(snapshot), {
+      hasCart: false,
+      subscriptionActive: false,
+      accountDeleted: false,
+      cancellableOrderIds: []
+    }).find((tool) => tool.name === "find_recommendations");
+
+    const result = await recommendationTool?.execute(
+      { category: "audio", budget: 300, income: 120000 },
+      {}
+    );
+    expect(result).toMatchObject({
+      status: "blocked",
+      decision: "DENY",
+      reasonCodes: ["TRUST_WARNING", "DATA_FIELD_BLOCKED"]
+    });
   });
 });

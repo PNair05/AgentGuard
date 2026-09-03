@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AgentGuard — Policy firewall for WebMCP actions",
+  title: "AgentGuard — Trust and authorization for WebMCP",
   description:
-    "A programmable consent and policy-enforcement layer for consequential WebMCP actions."
+    "A trust, authorization, privacy, approval, verification, and audit layer for consequential WebMCP actions."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

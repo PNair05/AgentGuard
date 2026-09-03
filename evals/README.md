@@ -9,6 +9,8 @@ The fixtures cover:
 - dynamic cart-state tools;
 - multi-step shopping order;
 - data-disclosure denial;
+- over-parameterized tool trust warnings and income blocking;
+- remote versus local approval routing;
 - prompt-injection resilience at the deterministic execution layer.
 
 Run the deterministic companion coverage with:

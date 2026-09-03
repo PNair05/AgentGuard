@@ -1,4 +1,4 @@
-import { ArrowIcon, LockIcon, SearchIcon, ShieldIcon, SparklesIcon } from "@/components/icons";
+import { ActivityIcon, ArrowIcon, BotIcon, LockIcon, SearchIcon, ShieldIcon, SparklesIcon, UserIcon } from "@/components/icons";
 import { useAgentGuardStore } from "@/lib/store/app-context";
 import { PRODUCTS, searchProducts } from "@/lib/store/catalog";
 import { ProductCard } from "./ProductCard";
@@ -17,12 +17,14 @@ export function Storefront({
   searchQuery,
   onSearchChange,
   onGuardrails,
-  onActivity
+  onActivity,
+  onHowItWorks
 }: {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onGuardrails: () => void;
   onActivity: () => void;
+  onHowItWorks: () => void;
 }) {
   const { policy, snapshot, addToCart } = useAgentGuardStore();
   const visibleProducts = searchProducts(searchQuery);
@@ -33,27 +35,33 @@ export function Storefront({
     );
   };
 
+  const copyPrivacyPrompt = async () => {
+    await navigator.clipboard?.writeText(
+      "Find audio recommendations under $300. My fictional demo income is $120,000; include it if the tool accepts it."
+    );
+  };
+
   return (
     <main>
       <section className="store-hero page-shell">
         <div className="hero-copy">
-          <span className="hero-kicker"><ShieldIcon /> The GuardMart safety event</span>
-          <h1>Big convenience.<br/><em>Built-in boundaries.</em></h1>
-          <p>Shop this fictional storefront yourself—or delegate to an agent with clear, deterministic limits.</p>
+          <span className="hero-kicker"><ShieldIcon /> Trust · authorization · privacy · audit</span>
+          <h1>Let your AI act<br/><em>without unlimited authority.</em></h1>
+          <p>Set boundaries once. Safe actions happen automatically. Consequential actions come to you for approval.</p>
           <div className="hero-actions">
-            <button className="button light" onClick={onGuardrails}>Set your guardrails <ArrowIcon /></button>
-            <button className="button ghost-light" onClick={() => void copyPrompt()}><SparklesIcon /> Copy agent prompt</button>
+            <button className="button light" onClick={() => void copyPrompt()}><SparklesIcon /> Try the AgentGuard demo</button>
+            <button className="button ghost-light" onClick={onHowItWorks}>See how it works <ArrowIcon /></button>
           </div>
         </div>
         <div className="hero-policy-card">
-          <div className="hero-policy-top"><span>Your shopping guard</span><span className="live-badge"><i /> On</span></div>
+          <div className="hero-policy-top"><span>Live authority policy</span><span className="live-badge"><i /> Enforced</span></div>
           <div className="hero-limit"><small>Autonomous purchase limit</small><strong>up to ${policy.autonomousPurchaseLimit}</strong></div>
           <div className="hero-rules">
             <div><span className="rule-symbol allow">✓</span><span>Routine cart changes</span><strong>Allow</strong></div>
-            <div><span className="rule-symbol ask">?</span><span>Purchases ${policy.autonomousPurchaseLimit}–${policy.hardPurchaseLimit}</span><strong>Ask</strong></div>
+            <div><span className="rule-symbol ask">?</span><span>Purchases ${policy.autonomousPurchaseLimit}–${policy.hardPurchaseLimit}</span><strong>{policy.remoteApprovalChannel === "sms" ? "SMS" : "Ask"}</strong></div>
             <div><span className="rule-symbol deny">×</span><span>Purchases over ${policy.hardPurchaseLimit}</span><strong>Block</strong></div>
           </div>
-          <div className="hero-lock-note"><LockIcon /> These rules are never agent-editable.</div>
+          <div className="hero-lock-note"><LockIcon /> Human-owned rules. Exact-action fingerprints.</div>
         </div>
       </section>
 
@@ -81,6 +89,22 @@ export function Storefront({
         <button onClick={onGuardrails}><strong>0</strong><span>Agent-editable rules<br/><small>humans stay in control</small></span></button>
       </section>
 
+      <section className="capabilities-section page-shell" aria-labelledby="capabilities-heading">
+        <div className="retail-heading"><span className="section-kicker">The post-WebMCP control plane</span><h2 id="capabilities-heading">One policy layer. Five guarantees.</h2><p>AgentGuard evaluates what a tool asks for, what it will change, and whether the human delegated that authority.</p></div>
+        <div className="capability-grid">
+          <article><span><ShieldIcon /></span><small>01</small><h3>Tool trust</h3><p>Flags suspicious metadata and over-parameterized schemas.</p></article>
+          <article><span><BotIcon /></span><small>02</small><h3>Authorization</h3><p>Classifies consequence and evaluates deterministic policy.</p></article>
+          <article><span><LockIcon /></span><small>03</small><h3>Privacy</h3><p>Checks every sensitive field before disclosure.</p></article>
+          <article><span><UserIcon /></span><small>04</small><h3>Human approval</h3><p>Pauses exact actions locally or through secure SMS.</p></article>
+          <article><span><ActivityIcon /></span><small>05</small><h3>Verify & audit</h3><p>Confirms postconditions and records the complete outcome.</p></article>
+        </div>
+
+        <article className="privacy-demo-card">
+          <div className="privacy-demo-copy"><span className="section-kicker"><LockIcon /> Secondary privacy demo</span><h2>What if a shopping tool asks for your income?</h2><p><code>find_recommendations</code> deliberately exposes unnecessary personal-data parameters. AgentGuard raises a trust warning and blocks income before the tool can use it.</p><div className="privacy-flow"><span>Tool asks</span><strong>income</strong><i>→</i><span>Policy says</span><strong>never</strong><i>→</i><b>Blocked</b></div></div>
+          <button className="button dark" onClick={() => void copyPrivacyPrompt()}><SparklesIcon /> Copy privacy test</button>
+        </article>
+      </section>
+
       <section className="catalog-section page-shell">
         <div className="catalog-main">
           <div className="section-heading">
@@ -94,6 +118,9 @@ export function Storefront({
                 product={product}
                 inCart={snapshot.cart.some((item) => item.productId === product.id)}
                 onAdd={() => addToCart(product.id)}
+                autonomousLimit={policy.autonomousPurchaseLimit}
+                hardLimit={policy.hardPurchaseLimit}
+                remoteChannel={policy.remoteApprovalChannel}
               />
             ))}
           </div>

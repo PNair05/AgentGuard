@@ -23,6 +23,7 @@ export class ApprovalBroker {
   private readonly timeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly remoteTransport: RemoteApprovalTransport;
+  private remoteCredentials = new Map<string, string>();
 
   constructor(options: ApprovalBrokerOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? FIVE_MINUTES;
@@ -59,6 +60,7 @@ export class ApprovalBroker {
         settled = true;
         clearTimeout(expiryTimer);
         if (pollTimer) clearInterval(pollTimer);
+        this.remoteCredentials.delete(id);
         signal?.removeEventListener("abort", onAbort);
         if (this.pending?.id === id) {
           this.pending = null;
@@ -85,6 +87,7 @@ export class ApprovalBroker {
       this.emit();
 
       if (approvalChannel === "sms" && typeof window !== "undefined") {
+        this.remoteCredentials.set(id, token);
         void this.remoteTransport
           .create({ id, token, fingerprint, action: decision.action, reasons: decision.reasons, expiresAt })
           .then((delivery) => {
@@ -122,6 +125,10 @@ export class ApprovalBroker {
 
   respond(id: string, approved: boolean) {
     if (this.pending?.id !== id) return false;
+    const token = this.remoteCredentials.get(id);
+    if (token) {
+      void this.remoteTransport.respond(id, token, approved ? "approved" : "denied").catch(() => undefined);
+    }
     this.pending.resolve(approved ? "approved" : "denied");
     return true;
   }

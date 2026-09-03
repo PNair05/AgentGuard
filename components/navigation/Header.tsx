@@ -31,7 +31,7 @@ export function Header({
     <header className="site-header">
       <div className="utility-bar">
         <div className="utility-inner">
-          <button className="location-button"><MapPinIcon /> Ship to <strong>10001</strong></button>
+          <button className="location-button"><MapPinIcon /> GuardMart <strong>reference demo</strong></button>
           <div className="utility-links" aria-label="Utility navigation">
             <button onClick={() => setActiveTab("how")}>AgentGuard help</button>
             <button onClick={() => setActiveTab("activity")}>Session activity</button>
@@ -43,8 +43,8 @@ export function Header({
         <button className="brand" onClick={() => setActiveTab("store")} aria-label="AgentGuard home">
           <span className="brand-mark"><ShieldIcon /></span>
           <span>
-            <strong>GuardMart</strong>
-            <small>protected by AgentGuard</small>
+            <strong>AgentGuard</strong>
+            <small>GuardMart reference store</small>
           </span>
         </button>
 

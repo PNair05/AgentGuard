@@ -72,12 +72,19 @@ export function GuardrailsPanel() {
               <AskToggle title="Non-refundable purchases" description="Ask even when the price is below the autonomous limit." checked={policy.requireApprovalForNonRefundable} onChange={(value) => updatePolicy({ requireApprovalForNonRefundable: value })}/>
               <AskToggle title="Destructive actions" description="Account deletion and order cancellation require approval." checked={policy.requireApprovalForDestructive} onChange={(value) => updatePolicy({ requireApprovalForDestructive: value })}/>
             </div>
+            <div className="approval-channel-setting">
+              <div><strong>Remote approval channel</strong><span>Use SMS for purchases, subscriptions, and data requests—or keep approvals in this browser.</span></div>
+              <div className="channel-options" role="group" aria-label="Remote approval channel">
+                <button className={policy.remoteApprovalChannel === "sms" ? "active" : ""} onClick={() => updatePolicy({ remoteApprovalChannel: "sms" })}>SMS</button>
+                <button className={policy.remoteApprovalChannel === "browser" ? "active" : ""} onClick={() => updatePolicy({ remoteApprovalChannel: "browser" })}>Browser</button>
+              </div>
+            </div>
           </article>
 
           <article className="settings-card">
             <div className="settings-card-heading"><span className="settings-number">03</span><div><h2>Personal data</h2><p>Choose a separate boundary for each supported profile field.</p></div></div>
             <div className="data-rules">
-              {[{field:"email",detail:"Email address"},{field:"location",detail:"Approximate location"},{field:"phone",detail:"Phone number"}].map(({ field, detail }) => (
+              {[{field:"email",detail:"Email address"},{field:"phone",detail:"Phone number"},{field:"precise_location",detail:"Precise location"},{field:"income",detail:"Income"}].map(({ field, detail }) => (
                 <div className="data-row" key={field}><div><strong>{detail}</strong><span>Profile field: {field}</span></div><div className="segmented" role="group" aria-label={`${detail} sharing policy`}>{RULE_OPTIONS.map((option) => <button key={option.value} className={policy.dataRules[field] === option.value ? `active ${option.value.toLowerCase()}` : ""} onClick={() => updateDataRule(field, option.value)}>{option.label}</button>)}</div></div>
               ))}
             </div>
@@ -91,10 +98,10 @@ export function GuardrailsPanel() {
           <p>AgentGuard evaluates these rules deterministically. The model cannot talk its way around them.</p>
           <div className="summary-ladder">
             <div className="summary-step allow"><span>Allow</span><strong>≤ ${policy.autonomousPurchaseLimit}</strong><small>Routine one-time spend</small></div>
-            <div className="summary-step ask"><span>Ask</span><strong>${policy.autonomousPurchaseLimit}–${policy.hardPurchaseLimit}</strong><small>Human decides once</small></div>
+            <div className="summary-step ask"><span>Remote</span><strong>${policy.autonomousPurchaseLimit}–${policy.hardPurchaseLimit}</strong><small>{policy.remoteApprovalChannel === "sms" ? "Single-use SMS approval" : "Single-use browser approval"}</small></div>
             <div className="summary-step deny"><span>Block</span><strong>&gt; ${policy.hardPurchaseLimit}</strong><small>No side effect</small></div>
           </div>
-          <div className="human-only-note"><LockIcon /><div><strong>Human-only surface</strong><p>No WebMCP tool can read raw profile values or edit these controls.</p></div></div>
+          <div className="human-only-note"><LockIcon /><div><strong>Human-only surface</strong><p>Destructive actions stay local. No WebMCP tool can read raw profile values or edit these controls.</p></div></div>
         </aside>
       </div>
     </main>

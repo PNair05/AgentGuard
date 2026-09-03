@@ -7,12 +7,24 @@ const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 export function ProductCard({
   product,
   inCart,
-  onAdd
+  onAdd,
+  autonomousLimit,
+  hardLimit,
+  remoteChannel
 }: {
   product: Product;
   inCart: boolean;
   onAdd: () => void;
+  autonomousLimit: number;
+  hardLimit: number;
+  remoteChannel: "browser" | "sms";
 }) {
+  const outcome = product.price > hardLimit
+    ? { tone: "blocked", label: "Policy blocked" }
+    : product.price > autonomousLimit || !product.refundable
+      ? { tone: "remote", label: `${remoteChannel === "sms" ? "SMS" : "Browser"} approval` }
+      : { tone: "automatic", label: "Runs automatically" };
+
   return (
     <article className="product-card">
       <div className={`product-art ${product.accent}`}>
@@ -21,6 +33,7 @@ export function ProductCard({
       </div>
       <div className="product-copy">
         <span className="product-brand">GuardMart exclusive</span>
+        <span className={`product-outcome ${outcome.tone}`}>{outcome.label}</span>
         <h3>{product.name}</h3>
         <div className="product-meta"><span className="rating">★ {product.rating} <small>({product.reviews})</small></span><span>{product.category}</span></div>
         <p>{product.description}</p>

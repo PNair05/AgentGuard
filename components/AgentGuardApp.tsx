@@ -23,7 +23,7 @@ function Workspace() {
     <div className="app-frame">
       <Header activeTab={activeTab} setActiveTab={setActiveTab} status={webmcp.status} cartCount={cart.count} activityCount={audits.length} searchQuery={searchQuery} onSearchChange={setSearchQuery}/>
       <WebMCPStatus status={webmcp.status} error={webmcp.error}/>
-      {activeTab === "store" ? <Storefront searchQuery={searchQuery} onSearchChange={setSearchQuery} onGuardrails={() => setActiveTab("guardrails")} onActivity={() => setActiveTab("activity")}/> : null}
+      {activeTab === "store" ? <Storefront searchQuery={searchQuery} onSearchChange={setSearchQuery} onGuardrails={() => setActiveTab("guardrails")} onActivity={() => setActiveTab("activity")} onHowItWorks={() => setActiveTab("how")}/> : null}
       {activeTab === "guardrails" ? <GuardrailsPanel /> : null}
       {activeTab === "activity" ? <ActivityTimeline /> : null}
       {activeTab === "how" ? <HowItWorks status={webmcp.status} registeredNames={webmcp.registeredNames}/> : null}

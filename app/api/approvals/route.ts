@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   const baseUrl = configuredBase || new URL(request.url).origin;
   const approvalUrl = `${baseUrl}/approve?request=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`;
 
-  createRemoteApproval({
+  const record = createRemoteApproval({
     id,
     token,
     fingerprint,
@@ -38,6 +38,9 @@ export async function POST(request: Request) {
     reasons: reasons as string[],
     expiresAt
   });
+  if (!record) {
+    return Response.json({ message: "An approval with this identifier already exists." }, { status: 409 });
+  }
 
   const delivery = await sendApprovalSms(action as unknown as GuardAction, approvalUrl);
   return Response.json({ ...delivery, approvalUrl });

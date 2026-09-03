@@ -46,6 +46,10 @@ export function createRemoteApproval(input: {
   reasons: string[];
   expiresAt: number;
 }) {
+  for (const [id, record] of approvals) {
+    if (record.expiresAt + 10 * 60 * 1000 < Date.now()) approvals.delete(id);
+  }
+  if (approvals.has(input.id)) return null;
   const record: RemoteApprovalRecord = {
     id: input.id,
     tokenHash: hashToken(input.token),

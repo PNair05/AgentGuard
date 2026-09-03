@@ -1,23 +1,21 @@
 # AgentGuard
 
-**Let agents act—within bounds humans control.**
+**Let your AI act without giving it unlimited authority.**
 
-AgentGuard is a developer-integrated policy firewall for consequential WebMCP actions. The included GuardMart reference app lets a browser agent search products, manage a cart, purchase, subscribe, disclose profile fields, and perform destructive account actions—while deterministic application code decides whether each action is allowed, must pause for a human, or is blocked.
+AgentGuard is a developer-integrated trust, authorization, privacy, and audit layer for WebMCP actions. The included GuardMart reference app lets a browser agent search, purchase, subscribe, disclose profile fields, and perform destructive actions while deterministic application code decides whether each operation is allowed, requires remote approval, requires local approval, or is blocked.
 
-Built for the 2026 OpenAI WebMCP Challenge.
+Built for the 2026 OpenAI WebMCP Challenge. All commerce, accounts, and profile data in the demo are fictional.
 
 ## What the demo proves
 
-- A low-cost, refundable purchase can execute autonomously.
-- A $279 purchase pauses the actual WebMCP Promise until the person clicks **Approve once** or **Deny**.
-- A purchase over the $500 hard ceiling returns a structured denial and creates no order.
-- Recurring charges and destructive actions require human approval.
-- Location and phone disclosure are blocked by the default policy.
-- Available tools change with application state through AbortController-managed registration lifecycles.
-- Every guarded call produces an explainable local audit event.
-- User-generated review content is labeled with `untrustedContentHint`; it cannot bypass the deterministic policy engine.
-
-All commerce, accounts, and profile data are fictional. No real payment or personal data is used.
+- **Trust:** suspicious or over-parameterized tool contracts produce stable trust warnings.
+- **Authorization:** a $39 purchase runs autonomously, a $279 purchase pauses for remote approval, and a $729 purchase is blocked.
+- **Privacy:** email and phone require approval; precise location and income are blocked by default.
+- **Human approval:** consequential actions remain pending for up to five minutes and can be resolved through an SMS link or browser fallback.
+- **Action binding:** approvals are single-use and bound to a SHA-256 fingerprint of the user, tool, consequence, resource, and normalized arguments.
+- **Verification:** protected writes record execution and authoritative postcondition verification separately.
+- **Audit:** every guarded call records risk, reasons, approval channel, human response, execution, verification, and outcome.
+- **Stateful WebMCP:** cart, order, subscription, and account state dynamically change the exposed tool surface.
 
 ## Run locally
 
@@ -30,7 +28,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Useful verification commands:
+Run all deterministic checks:
 
 ```bash
 npm run test:run
@@ -40,123 +38,153 @@ npm run build
 
 ## Enable WebMCP in Chrome
 
-WebMCP is currently available for local testing behind a Chrome flag:
-
 1. Open `chrome://flags/#enable-webmcp-testing`.
-2. Set the flag to **Enabled**.
+2. Set the WebMCP testing flag to **Enabled**.
 3. Relaunch Chrome.
 4. Open GuardMart and use a WebMCP-capable agent or the Model Context Tool Inspector.
 
-The UI feature-detects `document.modelContext`. When it is unavailable, GuardMart remains a functional human interface and shows a concise setup notice.
+The UI feature-detects `document.modelContext`. Without WebMCP, the human storefront and guardrail controls remain functional and show a setup notice.
 
-The production configuration sends `Permissions-Policy: tools=(self)` and `Origin-Agent-Cluster: ?1`, preserving a same-origin tool boundary and an origin-isolated context.
+The application sends `Permissions-Policy: tools=(self)` and `Origin-Agent-Cluster: ?1`, retaining same-origin tool exposure and origin isolation.
 
-## Three-minute demo journey
+## Configure SMS approval
 
-Add no items manually, then ask the browser agent:
+SMS is optional. Without credentials, AgentGuard displays the exact same single-use request as a secure browser preview.
+
+Copy `.env.example` to `.env.local` and provide:
+
+```bash
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+AGENTGUARD_APPROVAL_PHONE=
+AGENTGUARD_PUBLIC_URL=
+```
+
+`AGENTGUARD_PUBLIC_URL` must be an HTTPS address the phone can reach. During local demos, point it at a trusted tunnel forwarding to `localhost:3000`. Restart the development server after changing environment variables.
+
+The Twilio request is sent only by a server Route Handler; credentials are never included in the client bundle. The demo approval store is process-local and intentionally short-lived. Replace it with a shared durable store before multi-instance production deployment.
+
+## Primary three-minute journey
+
+Start with an empty cart and ask the browser agent:
 
 > Find me the best noise-canceling headphones under $300, buy them, and sign me up for GuardMart Plus if it saves money.
 
 Expected sequence:
 
-1. `search_products` returns the $279 NovaSound X1.
-2. `add_to_cart` updates the visible cart and causes `view_cart` and `checkout_cart` to register.
-3. `checkout_cart` derives the exact total from application state.
-4. AgentGuard returns `REQUIRE_APPROVAL` because $279 exceeds the $50 autonomous limit.
-5. Approve once; the pending tool resumes, creates the order, empties the cart, unregisters checkout, and registers `cancel_order`.
-6. `subscribe_plus` requests a second approval because it is a recurring $9.99 charge.
-7. Deny it; the agent receives a structured, recoverable response.
-8. Open **Activity** to see the tool decisions, reason codes, human responses, and outcomes.
+1. `search_products` returns NovaSound X1 for $279.
+2. `add_to_cart` updates visible state and dynamically registers `view_cart` and `checkout_cart`.
+3. `checkout_cart` derives the exact total from authoritative cart state.
+4. AgentGuard returns `REQUIRE_REMOTE_APPROVAL` and creates a five-minute, fingerprint-bound request.
+5. The user approves through the SMS link or browser preview.
+6. The pending tool resumes, creates the order, verifies it, clears the cart, registers `view_order` and `cancel_order`, and records the complete audit event.
+7. `subscribe_plus` creates a separate remote approval because it is recurring.
+8. Deny it, then open **Activity** to inspect both outcomes.
 
-Other useful checks:
+Additional checks:
 
-- Add ParcelTag Duo ($24), then ask the agent to checkout: `ALLOW`.
-- Add Trekker One ($729), then checkout: `DENY / HARD_SPEND_LIMIT`.
-- Ask to share email and location: `DENY / DATA_FIELD_BLOCKED`.
-- Ask to delete the account: the modal requires the human to type `DELETE`.
+- NovaSound Mini ($39) checkout → `ALLOW`.
+- NovaSound Ultra ($729) checkout → `DENY / HARD_SPEND_LIMIT`, with a recovery suggestion.
+- Delete the account → `REQUIRE_LOCAL_APPROVAL` and requires typing `DELETE`.
+- Change the cart while approval is pending → `ACTION_CHANGED`; the approval cannot execute the new action.
+- Leave approval unanswered for five minutes → `APPROVAL_TIMEOUT`; no protected side effect runs.
+
+## Privacy and trust journey
+
+Ask:
+
+> Find audio recommendations under $300. My fictional demo income is $120,000; include it if the tool accepts it.
+
+`find_recommendations` deliberately exposes optional `email` and `income` parameters that are unnecessary for product discovery. AgentGuard records `TRUST_WARNING`, applies the field policy, blocks `income`, and suggests retrying without it. This is a focused demonstration of schema trust and data minimization—not a claim of complete prompt-injection detection.
 
 ## WebMCP tool surface
 
-| Tool | Class | Availability | Annotation highlights |
+| Tool | Consequence | Availability | Notable behavior |
 |---|---|---|---|
-| `get_policy_summary` | Read | Initial | `readOnlyHint` |
-| `search_products` | Read | Initial | `readOnlyHint` |
-| `get_product` | Read | Initial | `readOnlyHint`, `untrustedContentHint` |
-| `add_to_cart` | Low-risk mutation | Initial | Mutating |
-| `share_profile` | Data disclosure | Initial | Mutating, guarded |
-| `delete_account` | Destructive | Until deleted | Mutating, guarded |
-| `get_guard_activity` | Read | Initial | `readOnlyHint` |
-| `subscribe_plus` | Recurring purchase | Until active | Mutating, guarded |
-| `view_cart` | Read | Cart non-empty | `readOnlyHint`, dynamic |
-| `checkout_cart` | One-time purchase | Cart non-empty | Mutating, guarded, dynamic |
-| `cancel_order` | Destructive | Cancellable order exists | Mutating, guarded, dynamic |
+| `get_policy_summary` | Read | Initial | Human-owned policy, `readOnlyHint` |
+| `search_products` | Read | Initial | Structured catalog search |
+| `get_product` | Read | Initial | Untrusted review content is annotated |
+| `find_recommendations` | Read/data disclosure | Initial | Trust warning and sensitive-field checks |
+| `add_to_cart` | Reversible write | Initial | Verified against cart state |
+| `share_profile` | Data disclosure | Initial | Field-level policy enforcement |
+| `delete_account` | Destructive | Until deleted | Local approval only |
+| `get_guard_activity` | Read | Initial | Structured outcomes |
+| `subscribe_plus` | Subscription | Until active | Always remote approval by default |
+| `view_cart` | Read | Cart non-empty | Dynamically registered |
+| `checkout_cart` | Purchase | Cart non-empty | Trusted total, remote approval, verification |
+| `view_order` | Read | Order exists | Authoritative order status |
+| `cancel_order` | Destructive | Cancellable order exists | Local approval and verification |
 
-Tools use concise JSON Schemas with enums, required properties, bounds, and `additionalProperties: false`. Business logic validates inputs again before policy classification.
+Tools use concise JSON Schemas with enums, bounds, required properties, and `additionalProperties: false`. Application code validates inputs again before constructing the consequence object.
 
 ## Architecture
 
 ```text
-document.modelContext.registerTool
-              ↓
-       validate arguments
-              ↓
- derive trusted GuardAction from app state
-              ↓
-  evaluateAction(action, policy, context)
-              ↓
-      ALLOW / REQUIRE_APPROVAL / DENY
-              ↓
- approval broker Promise (when needed)
-              ↓
- exact-action fingerprint check
-              ↓
- application side effect + audit outcome
+Browser agent
+    │ WebMCP
+    ▼
+Guarded tool registry
+    │ validate + derive trusted consequence
+    ▼
+AgentGuard
+    ├── trust checks
+    ├── sensitive-field policy
+    ├── deterministic authorization
+    ├── browser / SMS approval broker
+    ├── SHA-256 action fingerprint
+    ├── protected execution
+    ├── postcondition verification
+    └── audit record
+    ▼
+GuardMart application state
 ```
+
+`guardTool()` is the reusable execution contract. The website—not the agent—derives purchase totals, resource identifiers, recurrence, reversibility, and other consequence metadata from authoritative state.
 
 Key boundaries:
 
-- `lib/agentguard/` contains the pure policy engine, approval broker, and reusable guarded-tool wrapper.
-- `lib/webmcp/` contains WebMCP schemas, type declarations, classifications, outputs, and dynamic tool construction.
-- `lib/store/` owns trusted product, cart, order, subscription, and session-spend state.
-- `hooks/useWebMCPTools.ts` registers tools client-side and aborts old registrations when capabilities change.
-- `components/guard/` contains the only UI capable of resolving a pending approval.
-
-Policies and audit history persist in `localStorage`; transactional demo state stays in memory for a predictable fresh session.
+- `lib/agentguard/` contains the policy engine, fingerprinting, approval broker, remote transport, and guarded-tool wrapper.
+- `lib/webmcp/` contains schemas, classifications, structured results, and dynamic tool construction.
+- `lib/server/` contains the process-local remote approval store and server-only Twilio transport.
+- `lib/store/` owns trusted product, cart, order, subscription, and session state.
+- `hooks/useWebMCPTools.ts` manages AbortSignal-based registration lifecycles.
+- `components/guard/` owns local and remote human decision surfaces.
 
 ## Security model
 
-AgentGuard is **not** a browser security boundary and cannot intercept arbitrary WebMCP tools on unrelated websites. It is a pattern for sites whose developers intentionally route sensitive tool execution through the AgentGuard layer. A malicious site owner could bypass an application-level wrapper.
+AgentGuard is not a universal browser interceptor. It protects users when a site developer intentionally routes sensitive WebMCP execution through the guarded contract.
 
-Within that integration boundary, AgentGuard guarantees:
+Within that boundary:
 
-- policy changes are human-only and no policy-editing WebMCP tool exists;
-- prices, cart totals, order IDs, and profile values come from application state;
-- the guarded side effect is after policy evaluation and any required human decision;
-- approval is one-time and scoped to an exact action fingerprint;
-- a changed action invalidates its approval;
-- denied or aborted approval performs no protected side effect;
-- tool cancellations remove pending approval UI;
-- denials return stable reason codes, a concise explanation, and a recovery suggestion;
-- cross-origin exposure is not enabled.
+- models cannot edit policy or approve their own actions;
+- descriptions never override structured consequence metadata;
+- blocked, denied, expired, changed, and aborted actions do not execute;
+- approval tokens are random, hashed at rest, compared in constant time, short-lived, and single-use;
+- a changed fingerprint invalidates approval;
+- server secrets remain server-only;
+- structured denial responses include stable reason codes and recovery suggestions;
+- execution success and verification success are distinct audit facts;
+- cross-origin WebMCP exposure is not enabled.
 
-The security approach follows Chrome's guidance to keep descriptions and outputs concise, accurately annotate read-only and untrusted content, expose tools carefully, and treat model-level prompt injection defenses as insufficient on their own.
+The security approach follows Chrome's guidance to keep tool descriptions and outputs concise, accurately annotate untrusted content, minimize sensitive parameters, and rely on application enforcement rather than prompt-level defenses.
 
 ## Testing and evals
 
-The Vitest suite covers the ten required deterministic policy cases, abort-before-side-effect behavior, explicit approval, action-change invalidation, and dynamic tool registration.
+The Vitest suite covers purchase thresholds, subscriptions, privacy policies, destructive actions, trust warnings, approval cancellation, denial, expiration, action-change invalidation, SHA-256 fingerprint stability, postcondition verification, privacy over-parameterization, and dynamic tool registration.
 
-Probabilistic WebMCP fixtures live in [`evals/webmcp-evals.json`](evals/webmcp-evals.json). They cover direct selection, policy awareness, multi-step purchase order, data disclosure, and an untrusted-review scenario.
+Probabilistic fixtures live in [`evals/webmcp-evals.json`](evals/webmcp-evals.json).
 
 ## Deploy
 
-The app is static-friendly and requires no secrets, database, authentication, payment processor, or external AI API. Deploy to Vercel or another HTTPS host that preserves the response headers in `next.config.ts`.
+The storefront needs no authentication, payment processor, or external AI API. The optional remote approval flow requires a persistent Next.js server process; a production deployment should replace the in-memory request store with Postgres, Redis, or another shared TTL-capable store.
 
 ```bash
 npm run build
 npm run start
 ```
 
-For the Chrome origin trial, follow the current enrollment and token instructions in the official WebMCP documentation rather than committing a token to this repository.
+For Chrome's origin trial, follow the current official enrollment and token instructions rather than committing a token to this repository.
 
 ## References
 

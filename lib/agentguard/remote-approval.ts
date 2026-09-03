@@ -28,6 +28,7 @@ export interface RemoteApprovalView {
 export interface RemoteApprovalTransport {
   create(request: RemoteApprovalCreateRequest): Promise<RemoteApprovalCreateResponse>;
   get(id: string, token: string): Promise<RemoteApprovalView>;
+  respond(id: string, token: string, response: "approved" | "denied"): Promise<RemoteApprovalView>;
 }
 
 export const browserRemoteApprovalTransport: RemoteApprovalTransport = {
@@ -45,6 +46,15 @@ export const browserRemoteApprovalTransport: RemoteApprovalTransport = {
       cache: "no-store"
     });
     if (!response.ok) throw new Error("Remote approval status is unavailable.");
+    return response.json() as Promise<RemoteApprovalView>;
+  },
+  async respond(id, token, decision) {
+    const response = await fetch(`/api/approvals/${encodeURIComponent(id)}/respond`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token, response: decision })
+    });
+    if (!response.ok) throw new Error("Remote approval response could not be recorded.");
     return response.json() as Promise<RemoteApprovalView>;
   }
 };
