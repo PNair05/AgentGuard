@@ -49,6 +49,8 @@ The UI feature-detects `document.modelContext`. Without WebMCP, the human storef
 
 The application sends `Permissions-Policy: tools=(self)` and `Origin-Agent-Cluster: ?1`, retaining same-origin tool exposure and origin isolation.
 
+The Chrome flag enables local development on `localhost`. Public deployments must also enroll their exact HTTPS origin in the WebMCP origin trial and set the resulting token as `WEBMCP_ORIGIN_TRIAL_TOKEN` in the hosting environment. AgentGuard emits that value through the `Origin-Trial` response header without exposing it to application JavaScript.
+
 ## Configure SMS approval
 
 SMS is optional. Without credentials, AgentGuard displays the exact same single-use request as a secure browser preview.
